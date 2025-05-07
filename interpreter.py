@@ -1,11 +1,15 @@
 import random
+import re
 
 variables = {}
 loop_stack = []
 conditional_stack = []
+current_if_group = []
+
+def name_to_emoji(name):
+    return ''.join(f":{char}:" if char.isalpha() else char for char in name.lower())
 
 def execute_emoji(line):
-    """Handle special emoji commands"""
     try:
         if "🎲" in line:
             start = line.find("(") + 1
@@ -18,88 +22,123 @@ def execute_emoji(line):
         print(f"Error executing emoji command: {e}")
         return None
 
+def evaluate_expr(expr):
+    expr = expr.replace("🔢", "")
+    for var in variables:
+        expr = expr.replace(var, str(variables[var]))
+    expr = (expr.replace("➕", "+")
+                 .replace("➖", "-")
+                 .replace("✖️", "*")
+                 .replace("➗", "/")
+                 .replace("🧮", "%")
+                 .replace("✅", "True")
+                 .replace("🚫", "False"))
+    return expr
+
+def evaluate_condition_expr(expr):
+    try:
+        return eval(evaluate_expr(expr), {"__builtins__": None}, {})
+    except:
+        return False
+
+def parse_literal(value_expr):
+    if value_expr == "✅": return True
+    if value_expr == "🚫": return False
+    return None
+
 def interpret_line(line, line_num):
-    """Interpret a single line of emoji code"""
-    global variables, loop_stack, conditional_stack
-    
+    global variables, loop_stack, conditional_stack, current_if_group
+
     try:
         line = line.strip()
         if not line:
             return None
 
-        # Handle control flow first
-        if line == "🔄":
-            loop_stack.append({"start": line_num, "active": True})
-            return
-        elif line == "🛑":
+        if line.startswith("🔁"):
+            match = re.match(r"🔁 🔢(\w+) from (.+?) to (.+)", line)
+            if match:
+                var, start_expr, end_expr = match.groups()
+                start = int(eval(evaluate_expr(start_expr), {"__builtins__": None}, {}))
+                end = int(eval(evaluate_expr(end_expr), {"__builtins__": None}, {}))
+                loop_stack.append({"var": var, "start_line": line_num, "end": end, "index": start, "broken": False})
+                variables[var] = start
+                return
+
+        elif line == "🔄":
             if loop_stack:
                 loop = loop_stack[-1]
-                if loop["active"]:
-                    return {"jump": loop["start"]}
-                loop_stack.pop()
-            return
-        elif line == "⏹":
-            if loop_stack:
-                loop_stack[-1]["active"] = False
-            return {"break": True}
-        
-        # Handle conditionals
-        if line.startswith("🚀"):
-            parts = line[2:].split("📌")
-            condition = parts[0].strip()
-            left, op, right = parse_condition(condition)
-            result = evaluate_condition(left, op, right)
-            conditional_stack.append(result)
-            if not result:
-                return {"skip_until": "🚁"}
-            return
-        elif line == "🚁":
-            if conditional_stack:
-                conditional_stack.pop()
+                if loop.get("broken"):
+                    loop_stack.pop()
+                else:
+                    loop_var = loop["var"]
+                    variables[loop_var] += 1
+                    if variables[loop_var] > loop["end"]:
+                        loop_stack.pop()
+                    else:
+                        return {"jump": loop["start_line"]}
             return
 
-        # Skip execution if we're in a false conditional block
+        elif line == "🔚 loop":
+            if loop_stack:
+                loop_stack[-1]["broken"] = True
+            return
+
+        elif line == "🛑":
+            if conditional_stack:
+                conditional_stack.pop()
+            current_if_group.clear()
+            return
+
+        if line.startswith("🤔") or line.startswith("🚫"):
+            if "if" in line:
+                condition = line.split("if", 1)[-1].strip()
+                result = evaluate_condition_expr(condition)
+                conditional_stack.append(result)
+                current_if_group.append(result)
+                if not result:
+                    return {"skip_until": None}
+                return
+            elif line.strip() == "🚫 else":
+                if not any(current_if_group):
+                    return
+                else:
+                    return {"skip_until": "🛑"}
+
+        if not line.startswith(("🤔", "🚫")):
+            current_if_group.clear()
+
         if conditional_stack and not conditional_stack[-1]:
             return
 
-        # Print statements
         if line.startswith("🗣️"):
             output = line[2:].strip().strip('"')
-            for var in sorted(variables.keys(), key=len, reverse=True):
+            for var in variables:
                 output = output.replace(f"🔢{var}", str(variables[var]))
             print(output)
             return
 
-        # Variable assignments
-        if "👉" in line:
-            parts = line.split("👉", 1)
+        if "👉" in line or "=" in line:
+            line = line.replace("📦", "").strip()
+            if "👉" in line:
+                parts = line.split("👉", 1)
+            else:
+                parts = line.split("=", 1)
+
             var_name = parts[0].replace("🔢", "").strip()
             value_expr = parts[1].strip()
 
-            # Handle special emoji commands
-            if "🎲" in value_expr or "📥" in value_expr:
-                variables[var_name] = execute_emoji(value_expr)
-                print(f"Assigned {var_name} = {variables[var_name]}")
+            literal = parse_literal(value_expr)
+            if literal is not None:
+                variables[var_name] = literal
                 return
 
-            # Handle regular expressions
-            expr = value_expr
-            for var in sorted(variables.keys(), key=len, reverse=True):
-                expr = expr.replace(f"🔢{var}", str(variables[var]))
-            
-            expr = (expr.replace("➕", "+")
-                     .replace("➖", "-")
-                     .replace("✖️", "*")
-                     .replace("➗", "/")
-                     .replace("🧮", "%")
-                     .replace("🔢", ""))
-            
+            if "🎲" in value_expr or "📥" in value_expr:
+                variables[var_name] = execute_emoji(value_expr)
+                return
+
+            expr = evaluate_expr(value_expr)
             if expr.strip():
-                try:
-                    variables[var_name] = eval(expr, {"__builtins__": None}, {})
-                    print(f"Assigned {var_name} = {variables[var_name]}")
-                except Exception as e:
-                    print(f"Line {line_num}: Error in expression: {e}")
+                variables[var_name] = eval(expr, {"__builtins__": None}, {})
             return
 
         print(f"Line {line_num}: Unknown command: {line}")
@@ -107,48 +146,29 @@ def interpret_line(line, line_num):
     except Exception as e:
         print(f"Line {line_num}: Unexpected error: {e}")
 
-def parse_condition(condition):
-    """Parse comparison condition like 'a ➡ b'"""
-    if "➡" in condition:
-        left, right = condition.split("➡")
-        return left.strip(), ">", right.strip()
-    elif "⬅" in condition:
-        left, right = condition.split("⬅")
-        return left.strip(), "<", right.strip()
-    return None, None, None
-
-def evaluate_condition(left, op, right):
-    """Evaluate comparison condition"""
-    left_val = variables.get(left.replace("🔢", ""), 0)
-    right_val = variables.get(right.replace("🔢", ""), 0)
-    
-    if op == ">":
-        return left_val > right_val
-    elif op == "<":
-        return left_val < right_val
-    return False
-
 def interpret_file(content):
-    """Interpret a complete emoji program"""
-    global variables, loop_stack, conditional_stack
+    global variables, loop_stack, conditional_stack, current_if_group
     variables = {}
     loop_stack = []
     conditional_stack = []
-    
+    current_if_group = []
+
     lines = [line.strip() for line in content.split('\n') if line.strip()]
     i = 0
-    
+
     while i < len(lines):
         line = lines[i]
         result = interpret_line(line, i+1)
-        
+
         if isinstance(result, dict):
             if "jump" in result:
                 i = result["jump"] - 1
-            elif "break" in result:
-                break
-            elif "skip_until" in result:
+            elif "skip_until" in result and result["skip_until"]:
                 while i < len(lines) and not lines[i].startswith(result["skip_until"]):
                     i += 1
-        
         i += 1
+
+def interpret(filename):
+    with open(filename, 'r') as f:
+        content = f.read()
+    interpret_file(content)
