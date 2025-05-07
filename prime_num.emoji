@@ -5,8 +5,9 @@
   🤔 if 🔢num 🧮 🔢i == 0
     📦 🔢is_prime = 🚫
     🔚 loop
+🔄
 
 🤔 if 🔢is_prime == ✅
   🗣️ 🔢num is a prime number! ✨
 🚫 else
-🗣️ 🔢num is not a prime number. 😢
+  🗣️ 🔢num is not a prime number. 😢
