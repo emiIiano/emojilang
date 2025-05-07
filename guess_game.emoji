@@ -1,0 +1,16 @@
+🔢secret 👉 🎲(1➖10)
+🔢attempts 👉 0
+
+🔄
+  🗣️ "Enter your guess (1-10): "
+  🔢guess 👉 📥
+  🔢attempts 👉 🔢attempts ➕ 1
+
+  🚀 🔢guess ➡ 🔢secret
+    🗣️ "🎉 Correct! You won in 🔢attempts tries!"
+    ⏹
+  🚁 🔢guess ⬅ 🔢secret
+    🗣️ "📈 Too low!"
+  🚁
+    🗣️ "📉 Too high!"
+🛑
